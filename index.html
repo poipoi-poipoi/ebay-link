@@ -85,26 +85,40 @@
   var gid = (location.hash || "").replace(/^#/, "").trim();
   if (!gid || !/^[a-f0-9]{16,40}$/i.test(gid)) { show("nohash"); return; }
 
+  // raw gist(gist.githubusercontent.com)はapi.github.comの60回/時IPレート制限を受けない。
+  // まずraw(プレーンテキスト=現URL)を試し、ダメな時だけAPI(JSON)にフォールバックする。
+  var raw = "https://gist.githubusercontent.com/poipoi-poipoi/" + gid + "/raw/u?_=" + Date.now();
   var api = "https://api.github.com/gists/" + gid + "?_=" + Date.now();
-  fetch(api, { cache: "no-store", headers: { "Accept": "application/vnd.github+json" } })
+
+  function done(url) {
+    url = (url || "").trim();
+    if (!/^https:\/\/[a-z0-9-]+\.trycloudflare\.com/i.test(url)) {
+      throw new Error("no valid url in store");
+    }
+    document.getElementById("go").href = url;
+    show("ready");
+    location.replace(url); // 自動遷移（別オリジンへ）
+  }
+
+  fetch(raw, { cache: "no-store" })
     .then(function (r) {
-      if (!r.ok) throw new Error("store HTTP " + r.status);
-      return r.json();
+      if (!r.ok) throw new Error("raw HTTP " + r.status);
+      return r.text();
     })
-    .then(function (d) {
-      var files = d && d.files ? d.files : {};
-      var name = Object.keys(files)[0];
-      var url = name ? (files[name].content || "").trim() : "";
-      if (!/^https:\/\/[a-z0-9-]+\.trycloudflare\.com/i.test(url)) {
-        throw new Error("no valid url in store");
-      }
-      var go = document.getElementById("go");
-      go.href = url;
-      show("ready");
-      // 自動遷移（別オリジンへ）
-      location.replace(url);
+    .then(done)
+    .catch(function () {
+      return fetch(api, { cache: "no-store", headers: { "Accept": "application/vnd.github+json" } })
+        .then(function (r) {
+          if (!r.ok) throw new Error("store HTTP " + r.status);
+          return r.json();
+        })
+        .then(function (d) {
+          var files = d && d.files ? d.files : {};
+          var name = Object.keys(files)[0];
+          done(name ? (files[name].content || "") : "");
+        });
     })
-    .catch(function (e) { fail(); });
+    .catch(function () { fail(); });
 })();
 </script>
 </body>
